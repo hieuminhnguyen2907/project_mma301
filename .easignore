@@ -1,0 +1,45 @@
+# EAS Build uploads the project using this file instead of .gitignore.
+# It mirrors .gitignore EXCEPT .env: the EXPO_PUBLIC_* Firebase/Gemini values are
+# inlined into the JS bundle at build time, so the cloud build must see them
+# (otherwise the APK silently runs in offline demo mode).
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# tests & tooling not needed in the app build
+tests/
+scripts/

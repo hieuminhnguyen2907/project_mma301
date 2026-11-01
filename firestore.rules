@@ -1,0 +1,178 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // REMARKET MARKETPLACE - CLOUD FIRESTORE SECURITY RULES
+    // Vai trò: Khách (chỉ đọc sản phẩm), Người dùng (buyer_seller), Quản trị (admin).
+    // Quyền admin lấy từ users/{uid}.role, KHÔNG lấy từ dữ liệu client gửi lên.
+    // =========================================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return isAuthenticated()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userDoc().data.role == 'admin';
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // 1. Danh mục (Categories)
+    match /categories/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 2. Người dùng (Users)
+    // Hồ sơ chứa SĐT và sổ địa chỉ nên chỉ chính chủ và admin được đọc.
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Tự tạo hồ sơ khi đăng ký: không được tự gán quyền admin hay trạng thái khác
+      allow create: if isOwner(userId)
+        && request.resource.data.role == 'buyer_seller'
+        && request.resource.data.status == 'active';
+
+      // Chính chủ sửa hồ sơ nhưng không được đổi role/status/điểm đánh giá
+      allow update: if isAdmin()
+        || (isOwner(userId)
+            && !changedKeys().hasAny(['role', 'status', 'ratingAverage', 'ratingCount']))
+        // Người mua vừa gửi đánh giá được cập nhật điểm trung bình của người bán
+        || (isAuthenticated()
+            && changedKeys().hasOnly(['ratingAverage', 'ratingCount', 'updatedAt']));
+
+      allow delete: if isAdmin();
+    }
+
+    // 3. Sản phẩm (Products)
+    match /products/{productId} {
+      allow read: if true;
+
+      allow create: if isAdmin()
+        || (isAuthenticated()
+            && request.resource.data.sellerId == request.auth.uid
+            && request.resource.data.status == 'active');
+
+      // Admin: toàn quyền kiểm duyệt
+      allow update: if isAdmin()
+        // Người bán sửa tin của mình, nhưng không gỡ được lệnh ẩn/từ chối của admin
+        || (isAuthenticated()
+            && resource.data.sellerId == request.auth.uid
+            && !changedKeys().hasAny(['sellerId', 'hiddenBy', 'rejectionReason'])
+            && (resource.data.get('hiddenBy', null) != 'admin' || !changedKeys().hasAny(['status']))
+            && resource.data.status != 'rejected')
+        // Người mua: giữ/hoàn tồn kho trong giao dịch đặt hàng / hủy đơn
+        || (isAuthenticated()
+            && changedKeys().hasOnly(['stockQuantity', 'reservedQuantity', 'status', 'updatedAt'])
+            && resource.data.status in ['active', 'sold_out']
+            && request.resource.data.status in ['active', 'sold_out']
+            && request.resource.data.stockQuantity >= 0);
+
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.sellerId == request.auth.uid);
+    }
+
+    // 4. Đơn hàng (Orders)
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() && (
+        resource.data.buyerId == request.auth.uid ||
+        resource.data.sellerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuthenticated() && request.resource.data.buyerId == request.auth.uid;
+      allow update: if isAuthenticated()
+        && !changedKeys().hasAny(['buyerId', 'sellerId', 'items', 'subtotal', 'deliveryFee', 'totalAmount'])
+        && (
+          resource.data.buyerId == request.auth.uid ||
+          resource.data.sellerId == request.auth.uid ||
+          isAdmin()
+        );
+      allow delete: if isAdmin();
+    }
+
+    // 5. Nhắn tin (Conversations & Messages): chỉ 2 bên tham gia
+    match /conversations/{convId} {
+      function isParticipant(data) {
+        return data.buyerId == request.auth.uid || data.sellerId == request.auth.uid;
+      }
+
+      allow read: if isAuthenticated() && (isParticipant(resource.data) || isAdmin());
+      allow create: if isAuthenticated() && isParticipant(request.resource.data);
+      allow update: if isAuthenticated()
+        && isParticipant(resource.data)
+        && !changedKeys().hasAny(['buyerId', 'sellerId']);
+
+      match /messages/{messageId} {
+        function conv() {
+          return get(/databases/$(database)/documents/conversations/$(convId)).data;
+        }
+        allow read: if isAuthenticated() && (isParticipant(conv()) || isAdmin());
+        allow create: if isAuthenticated()
+          && isParticipant(conv())
+          && request.resource.data.senderId == request.auth.uid;
+      }
+    }
+
+    // 6. Ví người bán (Wallets): chỉ chủ ví tự cập nhật từ các đơn COD đã hoàn tất
+    match /wallets/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // 7. Thông báo (Notifications)
+    match /notifications/{notifId} {
+      allow read, delete: if isAuthenticated() && (
+        resource.data.recipientId == request.auth.uid || isAdmin()
+      );
+      allow update: if isAuthenticated()
+        && resource.data.recipientId == request.auth.uid
+        && changedKeys().hasOnly(['isRead']);
+      allow create: if isAuthenticated();
+    }
+
+    // 8. Đánh giá (Reviews): 1 đánh giá / đơn, id tài liệu = orderId
+    match /reviews/{orderId} {
+      allow read: if true;
+      allow create: if isAuthenticated()
+        && request.resource.data.buyerId == request.auth.uid
+        && request.resource.data.orderId == orderId
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5;
+      allow update, delete: if isAdmin();
+    }
+
+    // 9. Báo cáo vi phạm (Reports)
+    match /reports/{reportId} {
+      allow read: if isAuthenticated() && (resource.data.reporterId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.reporterId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // 10. Yêu cầu trả hàng / khiếu nại (Return requests)
+    match /return_requests/{returnId} {
+      allow read: if isAuthenticated() && (
+        resource.data.buyerId == request.auth.uid ||
+        resource.data.sellerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuthenticated() && request.resource.data.buyerId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // 11. Nhật ký kiểm duyệt (Moderation logs)
+    match /moderationLogs/{logId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

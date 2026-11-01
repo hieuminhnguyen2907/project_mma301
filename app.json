@@ -1,24 +1,66 @@
 {
   "expo": {
-    "name": "Project",
-    "slug": "Project",
+    "name": "ReMarket",
+    "slug": "remarket",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "vn.remarket.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "vn.remarket.app",
+      "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0F766E",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0F766E",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ReMarket cần truy cập thư viện ảnh để bạn đăng ảnh sản phẩm, ảnh đại diện và tìm kiếm bằng hình ảnh.",
+          "cameraPermission": "ReMarket cần quyền máy ảnh để bạn chụp ảnh sản phẩm thực tế khi đăng bán.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "ReMarket dùng vị trí hiện tại để ghim điểm xem hàng trên tin đăng của bạn."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8f8b22a5-0104-48fd-973b-de6264847b95"
+      }
     }
   }
 }
